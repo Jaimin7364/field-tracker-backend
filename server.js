@@ -17,7 +17,7 @@ const io = new Server(server, {
   cors: { origin: "*" }
 });
 
-mongoose.connect(process.env.MONGO_URI)
+mongoose.connect("mongodb+srv://techtalk736:IxMykzec4BhXmUGc@cluster.gx78d6p.mongodb.net/field-tracker")
   .then(() => console.log("✅ MongoDB connected"))
   .catch(err => console.log("MongoDB Error:", err));
 
