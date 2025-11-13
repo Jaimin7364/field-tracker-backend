@@ -1,64 +1,77 @@
 import express from "express";
 import http from "http";
 import { Server } from "socket.io";
-import mongoose from "mongoose";
-import dotenv from "dotenv";
 import cors from "cors";
-import Snapshot from "./models/Snapshot.js";
+import mongoose from "mongoose";
 
-dotenv.config();
-
+// === CONFIG ===
 const app = express();
-app.use(cors());
-app.use(express.json());
-
 const server = http.createServer(app);
+
 const io = new Server(server, {
-  cors: { origin: "*" }
-});
-
-mongoose.connect("mongodb+srv://techtalk736:IxMykzec4BhXmUGc@cluster.gx78d6p.mongodb.net/field-tracker")
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch(err => console.log("MongoDB Error:", err));
-
-// Store active workers
-const workers = new Map();
-
-io.on("connection", (socket) => {
-  console.log("⚡ New socket connected");
-
-  socket.on("worker-join", (workerId) => {
-    console.log(`👷 Worker joined: ${workerId}`);
-    workers.set(workerId, socket.id);
-  });
-
-  socket.on("frame", async ({ workerId, frame }) => {
-    socket.broadcast.emit("frame", { workerId, frame });
-    workers.set(workerId, socket.id);
-  });
-
-  socket.on("location", async ({ workerId, location }) => {
-    socket.broadcast.emit("location", { workerId, location });
-  });
-
-  socket.on("disconnect", async () => {
-    console.log("🔌 Socket disconnected");
-  });
-});
-
-app.post("/save-snapshot", async (req, res) => {
-  try {
-    const { workerId, frame, location } = req.body;
-    const snapshot = new Snapshot({ workerId, frame, location });
-    await snapshot.save();
-    res.status(200).json({ message: "Snapshot saved" });
-  } catch (err) {
-    console.error("❌ Error saving snapshot:", err);
-    res.status(500).json({ error: "Error saving snapshot" });
+  cors: {
+    origin: [
+      "https://field-tracker-frontend.vercel.app",
+      "http://localhost:3000"
+    ],
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
-app.get("/", (req, res) => res.send("Field Tracker API running..."));
+app.use(cors({
+  origin: [
+    "https://field-tracker-frontend.vercel.app",
+    "http://localhost:3000"
+  ],
+  methods: ["GET", "POST"],
+  credentials: true
+}));
 
-const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.use(express.json({ limit: "50mb" }));
+
+// === MONGO SETUP ===
+const MONGO_URI = "mongodb+srv://techtalk736:IxMykzec4BhXmUGc@cluster.gx78d6p.mongodb.net/field-tracker";
+mongoose.connect(MONGO_URI)
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch(err => console.error("❌ MongoDB Connection Error:", err));
+
+// === MONGOOSE MODEL ===
+const snapshotSchema = new mongoose.Schema({
+  image: String,
+  location: Object,
+  timestamp: { type: Date, default: Date.now }
+});
+const Snapshot = mongoose.model("Snapshot", snapshotSchema);
+
+// === TEST ROUTE ===
+app.get("/", (req, res) => {
+  res.send("🟢 Field Tracker backend running...");
+});
+
+// === SOCKET.IO HANDLERS ===
+io.on("connection", (socket) => {
+  console.log("Worker/Admin connected:", socket.id);
+
+  // Worker sends snapshot
+  socket.on("snapshot", async (data) => {
+    const { image, location } = data;
+
+    // save to DB
+    const snap = new Snapshot({ image, location });
+    await snap.save();
+
+    // send to all admins
+    io.emit("new-snapshot", { image, location });
+  });
+
+  socket.on("disconnect", () => {
+    console.log("❌ Disconnected:", socket.id);
+  });
+});
+
+// === START SERVER ===
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
